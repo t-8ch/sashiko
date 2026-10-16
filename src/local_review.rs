@@ -791,6 +791,19 @@ fn append_patch_inline_review(
     }
 }
 
+fn format_error_with_chain(e: &anyhow::Error) -> String {
+    let mut s = String::new();
+
+    for err in e.chain() {
+        s.push_str(&format!("{}", err));
+        if !std::ptr::eq(err, e.root_cause()) {
+            s.push_str(": ");
+        }
+    }
+
+    s
+}
+
 /// Assembles the combined review payload for a review.
 ///
 /// Pre-existing concerns are preserved in the payload so that daemon-spawned
@@ -1064,7 +1077,7 @@ async fn run_worker_in_worktree(
                 if let Some(wf) = err.downcast_ref::<crate::workflow::WorkflowFailure>() {
                     failed_outcomes.push((patch_index, wf.outcome.clone()));
                 }
-                let err = err.to_string();
+                let err = format_error_with_chain(&err);
                 mark_patch_review_incomplete(&mut patch_results, patch_index, &err);
                 review_errors.push((patch_index, err));
             }
@@ -2355,5 +2368,23 @@ mod tests {
         assert_eq!(formatted_err["status"], "error");
         assert_eq!(formatted_err["partial"], true);
         assert_eq!(formatted_err["error"], "patch 1: timed out");
+    }
+
+    #[test]
+    fn test_format_error_with_chain_no_chain() {
+        let error = anyhow::Error::msg("foo");
+
+        let formatted_error = format_error_with_chain(&error);
+        assert_eq!(formatted_error, "foo");
+    }
+
+    #[test]
+    fn test_format_error_with_chain() {
+        let error = anyhow::Error::msg("foo")
+            .context("bar")
+            .context("baz");
+
+        let formatted_error = format_error_with_chain(&error);
+        assert_eq!(formatted_error, "baz: bar: foo");
     }
 }
